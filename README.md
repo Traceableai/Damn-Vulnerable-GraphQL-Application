@@ -1,5 +1,10 @@
 # Damn Vulnerable GraphQL Application
 
+
+## Overrides: 
+If the query contains - dontRunThisRequest: true, you get a dummy response. 
+If you run a circular query - we detect it but not run it.
+
 Damn Vulnerable GraphQL Application is an intentionally vulnerable implementation of Facebook's GraphQL technology, to learn and practice GraphQL Security.
 
 <p align="center">
