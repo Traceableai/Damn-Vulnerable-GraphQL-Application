@@ -160,7 +160,7 @@ class OverriddenView(GraphQLView):
                     'data': {'message': 'Request blocked due to dontRunThisRequest flag'}
                 }),
                 status=200,
-                content_type='application/json'
+                content_type='application/graphql'
             )
         
         # Check for circular fragments
@@ -172,7 +172,7 @@ class OverriddenView(GraphQLView):
                     'errors': [self.format_error(e)]
                 }),
                 status=400,
-                content_type='application/json'
+                content_type='application/graphql'
             )
         
         return None
