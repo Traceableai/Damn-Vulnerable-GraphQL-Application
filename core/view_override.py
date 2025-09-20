@@ -18,6 +18,8 @@ from graphql_ws.gevent import GeventConnectionContext
 from graphql_ws.base_sync import BaseSyncSubscriptionServer
 from graphql_ws.base import ConnectionClosedException
 
+from core.utils import detect_circular_fragments
+
 def format_custom_error(error):
     try:
         message = str(error)
@@ -96,17 +98,17 @@ class OverriddenView(GraphQLView):
         try:
             request_method = request.method.lower()
             data = self.parse_body()
-
+            
+            # Validate query before execution
+            validation_error = self._validate_query(data)
+            if validation_error:
+                return validation_error
+            
+            # Configure display and execution options
             show_graphiql = request_method == 'get' and self.should_display_graphiql()
             catch = show_graphiql
             pretty = self.pretty or show_graphiql or request.args.get('pretty')
-
-            extra_options = {}
-            executor = self.get_executor()
-            if executor:
-                # We only include it optionally since
-                # executor is not a valid argument in all backends
-                extra_options['executor'] = executor
+            extra_options = self._get_execution_options()
 
             execution_results, all_params = run_http_query(
                 self.schema,
@@ -116,8 +118,6 @@ class OverriddenView(GraphQLView):
                 batch_enabled=self.batch,
                 catch=catch,
                 backend=self.get_backend(),
-
-                # Execute options
                 root=self.get_root_value(),
                 context=self.get_context(),
                 middleware=self.get_middleware(),
@@ -129,7 +129,6 @@ class OverriddenView(GraphQLView):
                 is_batch=isinstance(data, list),
                 format_error=self.format_error,
                 encode=partial(self.encode, pretty=pretty)
-
             )
 
             if show_graphiql:
@@ -145,14 +144,57 @@ class OverriddenView(GraphQLView):
             )
 
         except HttpQueryError as e:
+            return self._handle_http_error(e)
+    
+    def _validate_query(self, data):
+        """Validate query for security issues and special conditions."""
+        if not isinstance(data, dict) or 'query' not in data:
+            return None
+        
+        query = data['query']
+        
+        # Check for dontRunThisRequest flag
+        if 'dontRunThisRequest' in query:
+            return Response(
+                self.encode({
+                    'data': {'message': 'Request blocked due to dontRunThisRequest flag'}
+                }),
+                status=200,
+                content_type='application/graphql'
+            )
+        
+        # Check for circular fragments
+        try:
+            detect_circular_fragments(query)
+        except GraphQLError as e:
             return Response(
                 self.encode({
                     'errors': [self.format_error(e)]
                 }),
-                status=e.status_code,
-                headers=e.headers,
-                content_type='application/json'
+                status=400,
+                content_type='application/graphql'
             )
+        
+        return None
+    
+    def _get_execution_options(self):
+        """Get additional execution options for GraphQL query."""
+        extra_options = {}
+        executor = self.get_executor()
+        if executor:
+            extra_options['executor'] = executor
+        return extra_options
+    
+    def _handle_http_error(self, error):
+        """Handle HTTP query errors with proper response formatting."""
+        return Response(
+            self.encode({
+                'errors': [self.format_error(error)]
+            }),
+            status=error.status_code,
+            headers=error.headers,
+            content_type='application/json'
+        )
 
 class GeventSubscriptionServerCustom(BaseSyncSubscriptionServer):
     def handle(self, ws, request_context=None):
